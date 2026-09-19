@@ -4,6 +4,32 @@ GCP_PROJECT   ?= gcplearn9-498315
 GCP_REGION    ?= us-central1
 IMAGE_REPO    ?= us-central1-docker.pkg.dev/gcplearn9-498315/gitops-poc-apps
 
+.PHONY: help git-init git-commit git-push git-setup
+
+
+# >>> Git automation <<<
+REMOTE_URL ?=
+BRANCH_NAME ?= main
+COMMIT_MESSAGE ?= Initial commit
+
+.PHONY: git-init git-commit git-push git-setup
+
+git-init: ## Initialize git repository
+	git init
+	git add -A
+	git commit -m ""
+
+git-commit: ## Stage all changes and commit
+	git add -A
+	git commit -m ""
+
+git-push: ## Push to remote repository (requires REMOTE_URL)
+	@if (-z "") { Write-Error "REMOTE_URL is not set"; exit 1 }
+	git remote add origin  2>$null || git remote set-url origin 
+	git push -u origin 
+
+git-setup: git-init git-push ## Initialize git repo and push to remote
+
 .PHONY: help init-bootstrap apply-project apply-network apply-gke apply-operator apply-tempo apply-observability \
         kubectl-context deploy-collector deploy-app port-forwards evidence destroy
 
@@ -83,3 +109,4 @@ destroy: ## Destroy everything in reverse layer order
 	terraform -chdir=deploy/terraform/network destroy
 	@echo "The project layer's APIs stay enabled (disable_on_destroy=false)."
 	@echo "Now run the orphan hunt in docs/runbook.md (PDs, IPs, router/NAT, SA keys, GCS)."
+

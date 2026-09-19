@@ -30,3 +30,33 @@ Thumbs.db
 # IDE
 .vscode/
 .idea/
+
+# Blogs - DO NOT PUSH (monetization content)
+blog/
+**/blog/
+*.md
+!README.md
+
+# Sensitive content
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+*.cer
+secrets/
+**/secrets/
+**/*secret*
+**/*credential*
+**/*password*
+.env
+.env.*
+*.env
+config/secrets/
+vault/
+**/kubeconfig
+**/.kube/config
+aws_credentials
+.gcp/credentials
+service-account*.json
+*-service-account.json
