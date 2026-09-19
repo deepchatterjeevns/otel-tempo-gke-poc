@@ -1,0 +1,127 @@
+name: validate
+
+# CI for the GCP port - validates BOTH the AWS primary (../code) and this
+# GCP build (gcp/code) per the port discipline: one PR, both clouds green.
+#   1. Terraform fmt/validate each GCP layer (with a placeholder backend)
+#   2. Manifest schema validation (kubeconform against the OTel Operator
+#      CRD schemas pinned to the deployed operator version)
+#   3. Evidence-script + demo-app parse checks
+#
+# Note: no cluster or GCP credentials in CI by design - DRY ONLY.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  gcp-terraform-validate:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        layer: [backend, project, network, gke, operator, tempo, observability]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.9.x"
+
+      - name: Terraform fmt
+        run: terraform -chdir=deploy/terraform/${{ matrix.layer }} fmt -check -recursive
+
+      - name: Terraform init (no backend)
+        run: terraform -chdir=deploy/terraform/${{ matrix.layer }} init -backend=false
+
+      - name: Terraform validate
+        run: terraform -chdir=deploy/terraform/${{ matrix.layer }} validate
+
+  manifest-validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Kubeconform (k8s core schemas)
+        uses: docker://ghcr.io/yannh/kubeconform:latest
+        with:
+          entrypoint: /kubeconform
+          args: >
+            -strict
+            -summary
+            -ignore-missing-schemas
+            -skip Namespace
+            workloads/*.yaml
+
+      - name: Kubeconform (OpenTelemetry CRD schemas)
+        uses: docker://ghcr.io/yannh/kubeconform:latest
+        with:
+          entrypoint: /kubeconform
+          args: >
+            -strict
+            -summary
+            -schema-location
+            'https://raw.githubusercontent.com/open-telemetry/opentelemetry-operator/v0.74.2/config/crd/bases/opentelemetry.io_opentelemetrycollectors.yaml'
+            -schema-location
+            'https://raw.githubusercontent.com/open-telemetry/opentelemetry-operator/v0.74.2/config/crd/bases/opentelemetry.io_instrumentations.yaml'
+            -schema-location
+            'default'
+            collector/otel-collector.yaml
+
+      - name: Dashboard JSON syntax check
+        run: |
+          for f in observability/dashboards/*.json; do
+            jq empty "$f" || { echo "::error::invalid JSON: $f"; exit 1; }
+          done
+          echo "All dashboard JSON valid"
+
+  evidence-scripts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: PowerShell syntax check
+        shell: pwsh
+        run: |
+          $files = Get-ChildItem evidence/*.ps1
+          foreach ($f in $files) {
+            $errors = $null
+            [void][System.Management.Automation.Language.Parser]::ParseFile($f.FullName, [ref]$null, [ref]$errors)
+            if ($errors.Count -gt 0) {
+              $errors | ForEach-Object { Write-Error "$($f.Name): $($_.Message)" }
+              exit 1
+            }
+          }
+          Write-Output "All $($files.Count) scripts parse cleanly"
+
+      - name: Python demo app syntax check
+        run: |
+          python3 -m py_compile apps/frontend.py apps/backend.py
+          echo "Python sources compile"
+
+  # ---- The AWS primary lives at ../code relative to this repo root ----
+  # If you publish gcp/code as a SEPARATE repo, delete this job; if you
+  # publish one repo with both subtrees (recommended - comparable
+  # evidence), this job keeps the primary green on every PR too.
+  aws-primary-validate:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        layer: [backend, vpc, eks, operator, tempo, observability]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.9.x"
+
+      - name: Terraform fmt + validate (AWS layers)
+        run: |
+          terraform -chdir=code/deploy/terraform/${{ matrix.layer }} fmt -check -recursive
+          terraform -chdir=code/deploy/terraform/${{ matrix.layer }} init -backend=false
+          terraform -chdir=code/deploy/terraform/${{ matrix.layer }} validate

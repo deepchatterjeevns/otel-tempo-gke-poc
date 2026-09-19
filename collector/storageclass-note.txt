@@ -1,0 +1,18 @@
+# GKE Autopilot StorageClass note (READ THIS - it replaces the AWS build's
+# collector/storageclass-gp3.yaml):
+#
+#   1. GKE ships a DEFAULT StorageClass (standard-rwo, PD CSI driver) - the
+#      tempo-distributed ingester PVC and Grafana PVC bind with NO extra
+#      manifest. This is AWS divergence #2: on EKS 1.30 you MUST create a
+#      gp3 SC; on GKE it's built-in.
+#
+#   2. Autopilot FORBIDS setting your own default StorageClass (the
+#      gce.io cloud-provider rejects metadata changes it manages). If you
+#      need premium SSD for the ingester WAL, create a NON-default SC and
+#      name it explicitly in chart values.
+#
+#   3. PD-Consolidated (premium-rwo) is the Autopilot cost-optimization for
+#      multi-replica stateful pods (one PD shared by same-node replicas) -
+#      irrelevant at 1 ingester, noted for the production section.
+#
+# No manifest to apply here - intentionally empty. See docs/port-divergences.md.

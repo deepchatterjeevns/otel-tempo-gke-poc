@@ -1,0 +1,118 @@
+# Gateway-mode collector deployed by the OTel Operator.
+# Single OpenTelemetryCollector CR = Deployment (gateway), 2 replicas.
+#
+# Pipeline (the heart of the POC):
+#   OTLP gRPC :4317 (app SDKs) ->
+#     memory_limiter -> k8sattributes -> batch ->
+#       exporters: [otlp -> Tempo] + [prometheus :8889 (spanmetrics)]
+#     spanmetrics connector sits between receivers and exporters:
+#       receivers -> spanmetrics(conn) -> otlp exporter  (traces path)
+#      spanmetrics(conn) -> prometheus exporter           (metrics path)
+#
+# The spanmetrics connector is the trace-to-metrics bridge: it consumes
+# spans and emits RED metrics (rate/errors/duration) labeled with
+# service_name/span_name - Prometheus scrapes :8889, Grafana correlates.
+---
+apiVersion: opentelemetry.io/v1beta1
+kind: OpenTelemetryCollector
+metadata:
+  name: gap-otel-collector
+  namespace: gap-otel
+spec:
+  mode: deployment
+  replicas: 2
+  # Custom collector image is optional - the operator's default
+  # (ghcr.io/open-telemetry/opentelemetry-collector-releases) supports the
+  # spanmetrics connector used below. Set `image:` only if you need extra
+  # components.
+  config: |
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317
+          http:
+            endpoint: 0.0.0.0:4318
+
+    processors:
+      memory_limiter:
+        check_interval: 1s
+        limit_mib: 512
+        spike_limit_mib: 128
+      k8sattributes:
+        # Enriches spans with pod/namespace/node metadata - powers the
+        # k8s.pod.name -> trace correlation in Grafana.
+        extract:
+          metadata:
+            - k8s.pod.name
+            - k8s.namespace.name
+            - k8s.node.name
+            - k8s.deployment.name
+        passthrough: false
+      batch:
+        timeout: 5s
+        send_batch_size: 1024
+
+    connectors:
+      spanmetrics:
+        # Emits traces_span_metrics_calls_total etc. with these labels.
+        # namespace: "traces.span.metrics" -> metrics named traces_span_metrics_*
+        namespace: traces.span.metrics
+        dimensions:
+          - name: http.method
+          - name: http.status_code
+          - name: k8s.namespace.name
+        histogram:
+          explicit:
+            buckets: [5ms, 25ms, 100ms, 250ms, 1s, 2s]
+
+    exporters:
+      otlp:
+        endpoint: tempo-distributor.tempo:4317
+        tls:
+          insecure: true
+      # Spanmetrics RED metrics exposed for Prometheus on :8889.
+      # The operator adds this port to the pod; the Service below exposes it.
+      prometheus:
+        endpoint: 0.0.0.0:8889
+        resource_to_telemetry_conversion:
+          enabled: true
+
+    service:
+      telemetry:
+        logs:
+          level: info
+      pipelines:
+        traces:
+          receivers: [otlp]
+          processors: [memory_limiter, k8sattributes, batch]
+          # NOTE: exporters include spanmetrics (the connector) - it consumes
+          # the trace pipeline AND feeds the metrics pipeline below. Omitting
+          # it here is the classic silent-no-metrics bug.
+          exporters: [otlp, spanmetrics]
+        metrics:
+          # Metrics input is BOTH the OTLP receiver (SDK metrics, if any)
+          # AND the spanmetrics connector output - connectors appear as
+          # receivers on their output side.
+          receivers: [otlp, spanmetrics]
+          processors: [memory_limiter, batch]
+          exporters: [prometheus]
+---
+# Dedicated Service for the collector's spanmetrics port.
+# The operator-managed Service only exposes OTLP receiver ports (4317/4318)
+# by default; Prometheus needs a stable, routable :8889 target.
+apiVersion: v1
+kind: Service
+metadata:
+  name: gap-otel-collector-metrics
+  namespace: gap-otel
+  labels:
+    app.kubernetes.io/name: gap-otel-collector
+spec:
+  selector:
+    # Label the operator sets on gateway collector pods.
+    app.kubernetes.io/name: gap-otel-collector
+  ports:
+    - name: prometheus
+      port: 8889
+      targetPort: 8889

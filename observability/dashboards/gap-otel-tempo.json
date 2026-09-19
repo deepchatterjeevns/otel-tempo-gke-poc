@@ -1,0 +1,116 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": null,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "custom": { "drawStyle": "line", "lineWidth": 1, "fillOpacity": 10 }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "id": 1,
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum by (service_name, span_name) (rate(traces_span_metrics_calls_total[5m]))",
+          "legendFormat": "{{service_name}} / {{span_name}}"
+        }
+      ],
+      "title": "RED: R - span call rate (from spans, not app metrics)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": { "drawStyle": "line", "lineWidth": 1, "fillOpacity": 10 }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "id": 2,
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom" },
+        "textMode": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"] }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "histogram_quantile(0.95, sum by (le, service_name) (rate(traces_span_metrics_duration_seconds_bucket[5m])))",
+          "legendFormat": "{{service_name}} p95"
+        }
+      ],
+      "title": "RED: D - span duration p95 (backend reveals its 0-50ms sleep)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "custom": { "drawStyle": "line", "lineWidth": 1, "fillOpacity": 10 }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "id": 3,
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum by (service_name) (rate(traces_span_metrics_calls_total{http_status_code=~\"5..\"}[5m])) / sum by (service_name) (rate(traces_span_metrics_calls_total[5m]))",
+          "legendFormat": "{{service_name}} error ratio"
+        }
+      ],
+      "title": "RED: E - span error ratio (status 5xx)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "tempo", "uid": "tempo" },
+      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "id": 4,
+      "options": {
+        "overrides": [
+          { "properties": [], "matcher": { "id": "byName", "options": "service" } }
+        ],
+        "search": { "query": "status.code = 2 AND duration > 100ms", "limit": 20, "filters": [] },
+        "serviceNameQuery": "",
+        "traceIdQuery": ""
+      },
+      "targets": [
+        {
+          "datasource": { "type": "tempo", "uid": "tempo" },
+          "query": "status.code = 2 AND duration > 100ms",
+          "queryType": "traceSearch",
+          "limit": 20
+        }
+      ],
+      "title": "Trace search: slow + erroring traces (click to open waterfall)",
+      "type": "traces"
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "tags": ["gap-poc", "otel", "tempo"],
+  "templating": { "list": [] },
+  "time": { "from": "now-3h", "to": "now" },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Gap POC: OTel + Tempo trace/metric correlation",
+  "uid": "gap-otel-tempo",
+  "version": 1,
+  "weekStart": ""
+}

@@ -1,0 +1,29 @@
+# Language-specific auto-instrumentation template.
+# One CR per language in use; this one covers the Python demo app.
+#
+# The operator mutates annotated Deployments in ANY namespace to inject
+# the instrumentation (init container + env vars) at admission time:
+#   metadata.annotations: instrumentation.opentelemetry.io/inject-python: "true"
+# (namespace-scoped or CR-name-scoped values both work; "true" picks the
+# namespace's default via annotation on the Namespace object too)
+---
+apiVersion: opentelemetry.io/v1beta1
+kind: Instrumentation
+metadata:
+  name: gap-python
+  namespace: gap-demo
+spec:
+  exporter:
+    endpoint: http://gap-otel-collector.gap-otel:4317
+  propagate:
+    - tracecontext
+    - baggage
+  sampler:
+    type: parentbased_traceidratio
+    argument: "1.0" # POC: sample 100%; production baseline 0.1
+  python:
+    env:
+      - name: OTEL_SERVICE_NAME
+        valueFrom:
+          fieldRef:
+            fieldPath: "metadata.labels['app.kubernetes.io/name']"
