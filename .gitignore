@@ -60,3 +60,9 @@ aws_credentials
 .gcp/credentials
 service-account*.json
 *-service-account.json
+
+# Bash setup scripts
+git-setup.sh
+git-setup-gcp.sh
+git-setup-aws.sh
+evidence/*.sh
